@@ -22,12 +22,11 @@ public class PrescriptionController {
      * 创建处方单
      *
      * @param cmd
-     * @return
+     * @return prescriptionId
      */
     @PostMapping("/create")
-    public Result<Void> create(@RequestBody @Validated(value = InsertGroup.class) PrescriptionCreateCmd cmd) {
-        prescriptionService.createPrescription(cmd);
-        return Results.ok();
+    public Result<Long> create(@RequestBody @Validated(value = InsertGroup.class) PrescriptionCreateCmd cmd) {
+        return Results.ok(prescriptionService.createPrescription(cmd));
     }
 
     /**

@@ -43,7 +43,7 @@ public class PrescriptionServiceImpl extends ServiceImpl<PrescriptionMapper, Pre
 
     @Transactional(rollbackFor = Exception.class)
     @Override
-    public void createPrescription(PrescriptionCreateCmd cmd) {
+    public long createPrescription(PrescriptionCreateCmd cmd) {
         // 创建处方单
         PrescriptionEntity prescriptionAdd = PrescriptionEntity.builder().pharmacyId(cmd.getPharmacyId()).patientId(cmd.getPatientId()).status(PrescriptionStatusEnum.CREATED.getCode()).build();
         save(prescriptionAdd);
@@ -62,11 +62,12 @@ public class PrescriptionServiceImpl extends ServiceImpl<PrescriptionMapper, Pre
             PrescriptionEntity prescriptionUpdate = PrescriptionEntity.builder().id(prescriptionAdd.getId()).status(PrescriptionStatusEnum.FAIL.getCode()).build();
             updateById(prescriptionUpdate);
             auditLogService.logFailure(prescriptionAdd, JSON.toJSONString(cmd.getDrugs()), JSON.toJSONString(deductStockContext.getValidationResults()));
-            return;
+            return prescriptionAdd.getId();
         }
 
         // 更新预扣库存成功
         auditLogService.logSuccess(prescriptionAdd, JSON.toJSONString(cmd.getDrugs()));
+        return prescriptionAdd.getId();
     }
 
 
