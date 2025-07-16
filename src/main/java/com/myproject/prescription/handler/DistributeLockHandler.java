@@ -27,6 +27,7 @@ public class DistributeLockHandler implements DeductStockHandler {
     private final PharmacyDrugService pharmacyDrugService;
     private final DrugMapper drugMapper;
     private final PharmacyDrugMapper pharmacyDrugMapper;
+
     @Override
     public boolean deductStock(DeductStockContext ctx) {
         PrescriptionCreateCmd cmd = ctx.getCmd();
@@ -36,7 +37,7 @@ public class DistributeLockHandler implements DeductStockHandler {
         if (invalid) {
             return false;
         }
-        lockDrugStocks(cmd.getPharmacyId(), cmd.getDrugs(), false);
+        lockDrugStocks(cmd.getPharmacyId(), cmd.getDrugs());
         return true;
     }
 
@@ -55,19 +56,17 @@ public class DistributeLockHandler implements DeductStockHandler {
      *
      * @param pharmacyId
      * @param drugsAdd
-     * @param reverse
      */
-    private void lockDrugStocks(Long pharmacyId, List<PrescriptionItemDTO> drugsAdd, boolean reverse) {
+    private void lockDrugStocks(Long pharmacyId, List<PrescriptionItemDTO> drugsAdd) {
         List<PharmacyDrugEntity> pharmacyDrugEntities = pharmacyDrugService.list(Wrappers.<PharmacyDrugEntity>lambdaQuery().eq(PharmacyDrugEntity::getPharmacyId, pharmacyId)
                 .in(PharmacyDrugEntity::getDrugId, drugsAdd.stream().map(PrescriptionItemDTO::getDrugId).collect(Collectors.toSet())));
         Map<Long, PharmacyDrugEntity> pharmacyDrugMap = pharmacyDrugEntities.stream().collect(Collectors.toMap(PharmacyDrugEntity::getDrugId, Function.identity()));
         for (PrescriptionItemDTO prescriptionItemDTO : drugsAdd) {
-            Integer quantity = reverse ? -prescriptionItemDTO.getQuantity() : prescriptionItemDTO.getQuantity();
-            drugMapper.lockStock(prescriptionItemDTO.getDrugId(), quantity);
+            drugMapper.lockStock(prescriptionItemDTO.getDrugId(), prescriptionItemDTO.getQuantity());
             // 查询出药房对应的药瓶品，然后跟pharmacyDrug.id更新，避免因为mysql index merge 在同时使用pharmacyId&drugId索引更新时导致的死锁
             PharmacyDrugEntity pharmacyDrugEntity = pharmacyDrugMap.get(prescriptionItemDTO.getDrugId());
             if (pharmacyDrugEntity != null) {
-                pharmacyDrugMapper.lockStock(pharmacyDrugEntity.getId(), quantity);
+                pharmacyDrugMapper.lockStock(pharmacyDrugEntity.getId(), prescriptionItemDTO.getQuantity());
             }
         }
     }
