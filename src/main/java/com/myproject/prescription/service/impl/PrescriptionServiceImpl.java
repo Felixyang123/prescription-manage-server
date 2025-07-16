@@ -70,52 +70,6 @@ public class PrescriptionServiceImpl extends ServiceImpl<PrescriptionMapper, Pre
     }
 
 
-    private List<PrescriptionDrugValidationResultDTO> validateDrugsLockStock(Long pharmacyId, List<PrescriptionItemDTO> drugsAdd) {
-        // 将处方单药品排序， 按顺序加锁，避免死锁
-        drugsAdd.sort(Comparator.comparing(PrescriptionItemDTO::getDrugId));
-        List<PrescriptionDrugValidationResultDTO> results = new ArrayList<>();
-        Date now = new Date();
-
-        for (PrescriptionItemDTO prescriptionItemDTO : drugsAdd) {
-            Long drugId = prescriptionItemDTO.getDrugId();
-            Integer quantity = prescriptionItemDTO.getQuantity();
-            LockSupport.lockAndExecute("LOCK:PRESCRIPTION:CREATE:" + drugId, () -> {
-                PrescriptionDrugValidationResultDTO result = new PrescriptionDrugValidationResultDTO();
-                result.setDrugId(drugId);
-
-                // 检查药品有效期
-                DrugEntity drug = drugService.getById(drugId);
-                if (drug == null) {
-                    result.addFailure("药品不存在");
-                    results.add(result);
-                    return null;
-                }
-                if (drug.getExpiryDate().before(now)) {
-                    result.addFailure("药品已过期");
-                }
-
-                // 检查全局库存
-                if (drug.getCurrentStock() < quantity) {
-                    result.addFailure("药品库存不足");
-                }
-
-                // 检查药房分配
-                PharmacyDrugEntity pharmacyDrug = pharmacyDrugService.getOne(Wrappers.<PharmacyDrugEntity>lambdaQuery()
-                        .eq(PharmacyDrugEntity::getPharmacyId, pharmacyId).eq(PharmacyDrugEntity::getDrugId, drugId));
-                if (pharmacyDrug == null) {
-                    result.addFailure("药房未分配该药品");
-                } else if (pharmacyDrug.getCurrentStock() < quantity) {
-                    result.addFailure("药房分配库存不足");
-                }
-
-                result.setDrugName(drug.getName());
-                results.add(result);
-                return null;
-            });
-        }
-        return results;
-    }
-
     private List<PrescriptionDrugValidationResultDTO> validateDrugsReduceStock(Long pharmacyId, List<PrescriptionItemEntity> items) {
         // 将处方单药品排序， 按顺序加锁，避免死锁
         items.sort(Comparator.comparing(PrescriptionItemEntity::getDrugId));
@@ -195,9 +149,19 @@ public class PrescriptionServiceImpl extends ServiceImpl<PrescriptionMapper, Pre
      * @param prescriptionItems
      */
     private void releaseDrugStocks(Long pharmacyId, List<PrescriptionItemEntity> prescriptionItems) {
-        List<PrescriptionItemDTO> drugsInfo = prescriptionItems.stream().map(item -> PrescriptionItemDTO.builder()
-                .drugId(item.getDrugId()).quantity(item.getQuantity()).build()).collect(Collectors.toList());
-        lockDrugStocks(pharmacyId, drugsInfo, true);
+        Set<Long> drugIds = prescriptionItems.stream().map(PrescriptionItemEntity::getDrugId).collect(Collectors.toSet());
+        List<PharmacyDrugEntity> pharmacyDrugEntities = pharmacyDrugService.list(Wrappers.<PharmacyDrugEntity>lambdaQuery().eq(PharmacyDrugEntity::getPharmacyId, pharmacyId)
+                .in(PharmacyDrugEntity::getDrugId, drugIds));
+        Map<Long, PharmacyDrugEntity> pharmacyDrugMap = pharmacyDrugEntities.stream().collect(Collectors.toMap(PharmacyDrugEntity::getDrugId, Function.identity()));
+        for (PrescriptionItemEntity prescriptionItem : prescriptionItems) {
+            Integer quantity = -prescriptionItem.getQuantity();
+            drugMapper.lockStock(prescriptionItem.getDrugId(), quantity);
+            // 查询出药房对应的药瓶品，然后跟pharmacyDrug.id更新，避免因为mysql index merge 在同时使用pharmacyId&drugId索引更新时导致的死锁
+            PharmacyDrugEntity pharmacyDrugEntity = pharmacyDrugMap.get(prescriptionItem.getDrugId());
+            if (pharmacyDrugEntity != null) {
+                pharmacyDrugMapper.lockStock(pharmacyDrugEntity.getId(), quantity);
+            }
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
