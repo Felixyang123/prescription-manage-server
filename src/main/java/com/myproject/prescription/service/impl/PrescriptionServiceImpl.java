@@ -21,6 +21,8 @@ import com.myproject.prescription.pojo.command.PrescriptionCreateCmd;
 import com.myproject.prescription.pojo.dto.PrescriptionDrugValidationResultDTO;
 import com.myproject.prescription.pojo.dto.PrescriptionItemDTO;
 import com.myproject.prescription.service.*;
+import com.myproject.prescription.token.DefaultTokenContext;
+import com.myproject.prescription.token.TokenManager;
 import com.myproject.prescription.utils.AssertUtils;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
@@ -40,10 +42,14 @@ public class PrescriptionServiceImpl extends ServiceImpl<PrescriptionMapper, Pre
     private final AuditLogService auditLogService;
     private final DrugMapper drugMapper;
     private final PharmacyDrugMapper pharmacyDrugMapper;
+    private final TokenManager<DefaultTokenContext> tokenManager;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
     public long createPrescription(PrescriptionCreateCmd cmd) {
+        DefaultTokenContext tokenContext = new DefaultTokenContext();
+        tokenContext.setToken(cmd.getToken());
+        AssertUtils.assertTrue(tokenManager.checkToken(tokenContext), BizExceptionEnum.PRESCRIPTION_TOKEN_EXPIRED_ERROR.getException());
         // 创建处方单
         PrescriptionEntity prescriptionAdd = PrescriptionEntity.builder().pharmacyId(cmd.getPharmacyId()).patientId(cmd.getPatientId()).status(PrescriptionStatusEnum.CREATED.getCode()).build();
         save(prescriptionAdd);
