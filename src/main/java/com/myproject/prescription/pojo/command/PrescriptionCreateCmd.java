@@ -24,4 +24,7 @@ public class PrescriptionCreateCmd implements Serializable {
     @Size(message = "处方药品不能为空", min = 1)
     @NotNull(message = "处方药品不能为空")
     private List<PrescriptionItemDTO> drugs;
+
+    @NotBlank(message = "Token不能为空")
+    private String token;
 }

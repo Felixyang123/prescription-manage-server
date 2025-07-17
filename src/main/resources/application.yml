@@ -7,12 +7,14 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/prescription?useSSL=false&serverTimezone=Asia/Shanghai
     username: root
-    password:
+    password: lifan1994
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   redis:
     host: localhost
     port: 6379
+    username:
+    password:
     timeout: 5000
 
   jackson:
