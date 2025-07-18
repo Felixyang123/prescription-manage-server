@@ -11,6 +11,8 @@ import com.myproject.prescription.pojo.dto.PrescriptionDrugValidationResultDTO;
 import com.myproject.prescription.pojo.dto.PrescriptionItemDTO;
 import com.myproject.prescription.pojo.query.AuditLogPageQuery;
 import com.myproject.prescription.pojo.result.AuditLogPageResult;
+import com.myproject.prescription.token.DefaultTokenContext;
+import com.myproject.prescription.token.TokenManager;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.time.DateUtils;
 import org.junit.jupiter.api.Assertions;
@@ -42,6 +44,8 @@ public class PrescriptionServiceTest {
     private DrugService drugService;
     @Autowired
     private AuditLogService auditLogService;
+    @Autowired
+    private TokenManager<DefaultTokenContext> tokenManager;
 
     @Test
     @DisplayName("测试创建处方单")
@@ -77,6 +81,7 @@ public class PrescriptionServiceTest {
         PrescriptionCreateCmd cmd = new PrescriptionCreateCmd();
         cmd.setPatientId(UUID.randomUUID().toString());
         cmd.setPharmacyId(pharmacy.getId());
+        cmd.setToken(tokenManager.generateToken(new DefaultTokenContext()));
         List<PrescriptionItemDTO> itemDTOS = new ArrayList<>();
         PrescriptionItemDTO dto1 = PrescriptionItemDTO.builder().drugId(drug1.getId()).drugName(drug1.getName()).dosage("每日三次，一次10mg").quantity(10).build();
         PrescriptionItemDTO dto2 = PrescriptionItemDTO.builder().drugId(drug2.getId()).drugName(drug2.getName()).dosage("每日三次，一次10mg").quantity(20).build();
@@ -176,6 +181,7 @@ public class PrescriptionServiceTest {
         itemDTOS.add(dto1);
         itemDTOS.add(dto2);
         cmd.setDrugs(itemDTOS);
+        cmd.setToken(tokenManager.generateToken(new DefaultTokenContext()));
         prescriptionService.createPrescription(cmd);
 
         PrescriptionEntity prescription = prescriptionService.getOne(Wrappers.<PrescriptionEntity>lambdaQuery().eq(PrescriptionEntity::getPatientId, cmd.getPatientId()));
@@ -198,6 +204,7 @@ public class PrescriptionServiceTest {
 
         // 测试药品库存不足
         dto1.setQuantity(200);
+        cmd.setToken(tokenManager.generateToken(new DefaultTokenContext()));
         prescriptionService.createPrescription(cmd);
         pagedQueryAuditLogs = auditLogService.pageQueryAuditLogs(pageRequest);
         log = pagedQueryAuditLogs.getData().get(0);
@@ -210,6 +217,7 @@ public class PrescriptionServiceTest {
         // 测试药品过期
         drugService.updateById(DrugEntity.builder().id(drug1.getId()).expiryDate(DateUtils.addMonths(date, -1)).build());
         dto1.setQuantity(50);
+        cmd.setToken(tokenManager.generateToken(new DefaultTokenContext()));
         prescriptionService.createPrescription(cmd);
         pagedQueryAuditLogs = auditLogService.pageQueryAuditLogs(pageRequest);
         log = pagedQueryAuditLogs.getData().get(0);
@@ -265,7 +273,10 @@ public class PrescriptionServiceTest {
                 itemDTOS.add(dto1);
                 itemDTOS.add(dto2);
                 cmd.setDrugs(itemDTOS);
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> prescriptionService.createPrescription(cmd), pool);
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    cmd.setToken(tokenManager.generateToken(new DefaultTokenContext()));
+                    prescriptionService.createPrescription(cmd);
+                }, pool);
                 futures.add(future);
             }
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -375,6 +386,7 @@ public class PrescriptionServiceTest {
         itemDTOS.add(dto1);
         itemDTOS.add(dto2);
         cmd.setDrugs(itemDTOS);
+        cmd.setToken(tokenManager.generateToken(new DefaultTokenContext()));
         prescriptionService.createPrescription(cmd);
 
         PrescriptionEntity prescription = prescriptionService.getOne(Wrappers.<PrescriptionEntity>lambdaQuery().eq(PrescriptionEntity::getPatientId, cmd.getPatientId()));

@@ -5,7 +5,7 @@ spring:
   application:
     name: prescription-manage-server
   datasource:
-    url: jdbc:mysql://localhost:3306/prescription?useSSL=false&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/prescription?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root
     password: lifan1994
     driver-class-name: com.mysql.cj.jdbc.Driver
