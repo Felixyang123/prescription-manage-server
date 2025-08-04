@@ -14,9 +14,10 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
 
 /**
  * 悲观锁预扣库存
@@ -37,38 +38,13 @@ public class DistributeLockHandler implements DeductStockHandler {
         if (invalid) {
             return false;
         }
-        lockDrugStocks(cmd.getPharmacyId(), cmd.getDrugs());
+        pharmacyDrugService.lockDrugStocks(cmd.getPharmacyId(), cmd.getDrugs());
         return true;
     }
 
     @Override
     public DeductStockTypeEnum getDeductType() {
         return DeductStockTypeEnum.DISTRIBUTE_LOCK;
-    }
-
-
-    /**
-     * 预扣库存
-     * 当前采用同步扣减库存，如果系统并发量很高，同步模式达到性能瓶颈，可采用异步模式
-     * 异步模式需要Redis+MQ实现，Redis预加载药品库存，创建处方单时结合Lua脚本实现库存预扣
-     * 库存预扣成功则发送MQ消息，返回前端处方单ID，MQ消费者处理数据库库存扣减
-     * 前端根据返回的处方单ID查询处方单状态，如果状态为成功则返回给用户，如果状态为失败则返回失败原因
-     *
-     * @param pharmacyId
-     * @param drugsAdd
-     */
-    private void lockDrugStocks(Long pharmacyId, List<PrescriptionItemDTO> drugsAdd) {
-        List<PharmacyDrugEntity> pharmacyDrugEntities = pharmacyDrugService.list(Wrappers.<PharmacyDrugEntity>lambdaQuery().eq(PharmacyDrugEntity::getPharmacyId, pharmacyId)
-                .in(PharmacyDrugEntity::getDrugId, drugsAdd.stream().map(PrescriptionItemDTO::getDrugId).collect(Collectors.toSet())));
-        Map<Long, PharmacyDrugEntity> pharmacyDrugMap = pharmacyDrugEntities.stream().collect(Collectors.toMap(PharmacyDrugEntity::getDrugId, Function.identity()));
-        for (PrescriptionItemDTO prescriptionItemDTO : drugsAdd) {
-            drugMapper.lockStock(prescriptionItemDTO.getDrugId(), prescriptionItemDTO.getQuantity());
-            // 查询出药房对应的药瓶品，然后跟pharmacyDrug.id更新，避免因为mysql index merge 在同时使用pharmacyId&drugId索引更新时导致的死锁
-            PharmacyDrugEntity pharmacyDrugEntity = pharmacyDrugMap.get(prescriptionItemDTO.getDrugId());
-            if (pharmacyDrugEntity != null) {
-                pharmacyDrugMapper.lockStock(pharmacyDrugEntity.getId(), prescriptionItemDTO.getQuantity());
-            }
-        }
     }
 
     private List<PrescriptionDrugValidationResultDTO> validateDrugsLockStock(Long pharmacyId, List<PrescriptionItemDTO> drugsAdd) {
