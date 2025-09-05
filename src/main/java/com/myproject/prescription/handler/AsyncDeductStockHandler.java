@@ -9,6 +9,7 @@ import com.myproject.prescription.pojo.command.PrescriptionCreateCmd;
 import com.myproject.prescription.pojo.dto.PrescriptionDrugValidationResultDTO;
 import com.myproject.prescription.pojo.dto.PrescriptionItemDTO;
 import com.myproject.prescription.service.PharmacyDrugService;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -16,7 +17,6 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 

@@ -1,11 +1,11 @@
 package com.myproject.prescription.lock;
 
-import com.myproject.prescription.enums.BizExceptionEnum;
-import com.myproject.prescription.utils.AssertUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -18,27 +18,36 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @RequiredArgsConstructor
+@Component
 public class RedisDistributeLock implements Lock {
     private final RedisTemplate<String, Object> redisTemplate;
 
+    private final WatchDogExecutor watchDogExecutor;
+
     private static final String UNLOCK_SCRIPT = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
-    private static ThreadLocal<Map<String, Integer>> lockCounts = ThreadLocal.withInitial(HashMap::new);
+    private static final ThreadLocal<Map<String, Integer>> lockCounts = ThreadLocal.withInitial(HashMap::new);
 
     private final String instanceId = UUID.randomUUID().toString();
 
+    @Setter
+    private volatile long timeout = 30000;
+    @Setter
+    private volatile long leaseTime = 90000;
+
     @Override
-    public boolean tryLock(String key) {
+    public boolean tryLock(String key, long leaseTime) {
         Map<String, Integer> lockCntMap = lockCounts.get();
         Integer lockCnt = lockCntMap.get(key);
         if (lockCnt != null) {
             lockCntMap.put(key, ++lockCnt);
             return true;
         }
-        String lockVal = instanceId + ":" + Thread.currentThread().getId();
-        Boolean set = redisTemplate.opsForValue().setIfAbsent(key, lockVal, 90000, TimeUnit.MILLISECONDS);
+        String lockVal = instanceId + ":" + Thread.currentThread().threadId();
+        Boolean set = redisTemplate.opsForValue().setIfAbsent(key, lockVal, leaseTime, TimeUnit.MILLISECONDS);
         if (Boolean.TRUE.equals(set)) {
             lockCntMap.put(key, 1);
+            watchDogExecutor.createLeaseTask(key, lockVal, leaseTime);
             return true;
         }
         return false;
@@ -46,36 +55,25 @@ public class RedisDistributeLock implements Lock {
 
     @Override
     public void lock(String key) {
-        Map<String, Integer> lockCntMap = lockCounts.get();
-        Integer lockCnt = lockCntMap.get(key);
-        if (lockCnt != null) {
-            lockCntMap.put(key, ++lockCnt);
-            return;
-        }
-        while (!tryLock(key)) {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                log.warn("Lock failed, cause: ", e);
-                if (Thread.interrupted()) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
+        lock(key, timeout, leaseTime);
     }
 
     @Override
     public void release(String key) {
         Map<String, Integer> lockCntMap = lockCounts.get();
         Integer lockCnt = lockCntMap.get(key);
-        // TODO 优化异常，抽象锁，区分业务异常和系统异常
-        AssertUtils.notNull(lockCnt, BizExceptionEnum.RELEASE_OTHER_LOCK_ERROR.getException());
+        if (lockCnt == null) {
+            // 抛出异常，客户端catch异常后回滚当前业务
+            throw new RuntimeException("Release other thread's lock, current key is " + key);
+        }
 
         lockCnt--;
         if (lockCnt < 1) {
             lockCntMap.remove(key);
             DefaultRedisScript<Long> script = new DefaultRedisScript<>(UNLOCK_SCRIPT, Long.class);
-            redisTemplate.execute(script, Collections.singletonList(key), instanceId + Thread.currentThread().getId());
+            String lockVal = instanceId + ":" + Thread.currentThread().threadId();
+            redisTemplate.execute(script, Collections.singletonList(key), lockVal);
+            watchDogExecutor.removeLeaseTask(key, lockVal);
         } else {
             lockCntMap.put(key, lockCnt);
         }

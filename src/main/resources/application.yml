@@ -30,4 +30,4 @@ mybatis-plus:
 logging:
   level:
     root: info
-    com.myproject.prescription_manage_server: debug
+    com.myproject.prescription.*: debug
